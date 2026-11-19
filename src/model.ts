@@ -8,6 +8,9 @@ import {
 	promptText,
 	recentStart,
 	streamingEntry,
+	type ToolCard,
+	toolCardsOf,
+	type ToolResultFrame,
 	type TranscriptEntry,
 } from "./adapter";
 
@@ -16,12 +19,22 @@ export interface Prompt {
 	text: string;
 }
 
+/** A tool call of the current run, as its execution events last reported it. */
+export interface LiveTool {
+	/** Latest progress frame (`tool_execution_update`). */
+	partial?: ToolResultFrame;
+	/** Result from `tool_execution_end`, before the session records the tool result entry. */
+	final?: ToolResultFrame;
+}
+
 export interface ModelDeps {
 	ui: TUI;
 	cwd: string;
 	settings: unknown;
 	requestRender: () => void;
 	getBranch: () => readonly { type: string; id: string }[];
+	/** Tool calls running in this session, keyed by call id; owned by the extension. */
+	liveTools: ReadonlyMap<string, LiveTool>;
 }
 
 interface StreamingMessage {
@@ -50,6 +63,7 @@ export class TranscriptModel {
 	#streamingVersion = 0;
 	#childKeys = new Map<Component, string>();
 	#entryChildren = new Map<string, Component[]>();
+	#toolCards = new Map<string, ToolCard>();
 	readonly #overrides = new Map<string, boolean>();
 	#expanded = false;
 	#prompts: Prompt[] = [];
@@ -201,7 +215,7 @@ export class TranscriptModel {
 		this.#loadedFrom = lazy ? recentStart(entries) : 0;
 		this.#childKeys = new Map();
 		this.#entryChildren = new Map();
-		this.#rows = undefined;
+		this.#toolCards = new Map();
 		this.#appendEntries(entries.slice(this.#loadedFrom));
 		this.#prompts = [];
 		for (const entry of entries) this.#addPrompt(entry);
@@ -222,6 +236,10 @@ export class TranscriptModel {
 			}
 			if (added.length === 0) continue;
 			this.#entryChildren.set(entry.id, added);
+			for (const [id, card] of toolCardsOf(entry, added)) {
+				this.#toolCards.set(id, card);
+				this.#applyLiveTool(id, card);
+			}
 			for (const [index, child] of added.entries()) {
 				const key = `${entry.id}#${index}`;
 				this.#childKeys.set(child, key);
@@ -229,6 +247,22 @@ export class TranscriptModel {
 				if (override !== undefined && isExpandable(child)) child.setExpanded(override);
 			}
 		}
+	}
+
+	/** Show a running tool's latest frame on its card, as omp's live transcript does. */
+	refreshTool(toolCallId: string): void {
+		const card = this.#toolCards.get(toolCallId);
+		if (!card) return;
+		this.#applyLiveTool(toolCallId, card);
+		this.#deps.requestRender();
+	}
+
+	#applyLiveTool(toolCallId: string, card: ToolCard): void {
+		const live = this.#deps.liveTools.get(toolCallId);
+		if (!live) return;
+		card.setExecutionStarted(toolCallId);
+		if (live.final) card.updateResult(live.final, false, toolCallId);
+		else if (live.partial) card.updateResult(live.partial, true, toolCallId);
 	}
 
 	#addPrompt(entry: TranscriptEntry): void {

@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { type Component, matchesKey } from "@oh-my-pi/pi-tui";
-import { chromeChildren, selfCheck } from "./adapter";
-import { TranscriptModel } from "./model";
+import { chromeChildren, selfCheck, type ToolResultFrame } from "./adapter";
+import { type LiveTool, TranscriptModel } from "./model";
 import { loadSettings, saveSettings } from "./settings";
 import { FullscreenView, TOGGLE_KEY } from "./view";
 
@@ -17,6 +17,8 @@ export default function fullscreenView(pi: ExtensionAPI): void {
 	/** The user left fullscreen with the toggle key; holds until the next session start or switch. */
 	let classic = false;
 	let streaming: StreamingMessage | undefined;
+	/** Tool calls running in this session; the view draws their progress on the cards. */
+	const liveTools = new Map<string, LiveTool>();
 	let open: { model: TranscriptModel; close: () => void; requestRender: () => void } | undefined;
 	let mounting = false;
 	/** A session switch arrived while the old view was open: reopen once it has closed. */
@@ -41,6 +43,7 @@ export default function fullscreenView(pi: ExtensionAPI): void {
 							settings: pi.pi.settings,
 							requestRender: () => tui.requestRender(),
 							getBranch: () => ctx.sessionManager.getBranch(),
+							liveTools,
 						},
 						ctx.ui.getToolsExpanded(),
 					);
@@ -105,6 +108,7 @@ export default function fullscreenView(pi: ExtensionAPI): void {
 	function onSessionChange(ctx: ExtensionContext): void {
 		classic = false;
 		streaming = undefined;
+		liveTools.clear();
 		if (open) {
 			// Input listeners and the session manager belong to the old session: remount.
 			reopenWith = ctx;
@@ -128,7 +132,24 @@ export default function fullscreenView(pi: ExtensionAPI): void {
 	});
 	pi.on("agent_end", () => {
 		streaming = undefined;
+		liveTools.clear();
 		open?.model.setStreaming(undefined);
+	});
+
+	pi.on("tool_execution_start", event => {
+		liveTools.set(event.toolCallId, {});
+		open?.model.refreshTool(event.toolCallId);
+	});
+	pi.on("tool_execution_update", event => {
+		const partial = toFrame(event.partialResult);
+		if (!partial) return;
+		liveTools.set(event.toolCallId, { partial });
+		open?.model.refreshTool(event.toolCallId);
+	});
+	pi.on("tool_execution_end", event => {
+		const result = toFrame(event.result);
+		liveTools.set(event.toolCallId, result ? { final: { ...result, isError: event.isError } } : {});
+		open?.model.refreshTool(event.toolCallId);
 	});
 
 	pi.registerShortcut(TOGGLE_KEY, {
@@ -158,4 +179,10 @@ export default function fullscreenView(pi: ExtensionAPI): void {
 			show(ctx);
 		},
 	});
+}
+
+/** A tool result or progress frame from an execution event, or `undefined` when it has no content. */
+function toFrame(value: unknown): ToolResultFrame | undefined {
+	if (!value || typeof value !== "object" || !("content" in value) || !Array.isArray(value.content)) return undefined;
+	return { content: value.content, details: "details" in value ? value.details : undefined };
 }

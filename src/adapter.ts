@@ -9,6 +9,9 @@
 import type { Component, TUI } from "@oh-my-pi/pi-tui";
 import { ChatTranscriptBuilder } from "@oh-my-pi/pi-tui/chat/chat-transcript-builder";
 import { TranscriptContainer } from "@oh-my-pi/pi-tui/chrome/transcript-container";
+import { readArgsCollapseIntoGroup } from "@oh-my-pi/pi-tui/chat/read-tool-group";
+import { ReplyWriteComponent } from "@oh-my-pi/pi-tui/chat/reply-write";
+import { ToolExecutionComponent, type ToolResultFrame } from "@oh-my-pi/pi-tui/chat/tool-execution";
 import {
 	isUserRequestEntry,
 	recentTranscriptEntries,
@@ -18,6 +21,36 @@ import {
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 
 export type TranscriptEntry = TranscriptEntryLike;
+export type { ToolResultFrame };
+
+/** A tool card that takes progress frames, as omp's live transcript feeds them. */
+export interface ToolCard extends Component {
+	setExecutionStarted(toolCallId?: string): void;
+	updateResult(result: ToolResultFrame, isPartial?: boolean, toolCallId?: string): void;
+}
+
+/**
+ * The tool cards appending `entry` created, keyed by tool call id. Cards keep their call
+ * id private, so calls and cards are paired in order: the builder makes one card per call,
+ * except reads that fold into a shared read group. When the counts disagree nothing is
+ * paired, so a frame never lands on the wrong card.
+ */
+export function toolCardsOf(entry: TranscriptEntry, added: readonly Component[]): Map<string, ToolCard> {
+	const cards = new Map<string, ToolCard>();
+	if (entry.type !== "message" || entry.message.role !== "assistant") return cards;
+	const calls: string[] = [];
+	for (const block of entry.message.content) {
+		if (block.type !== "toolCall") continue;
+		if (block.name === "read" && readArgsCollapseIntoGroup(block.arguments)) continue;
+		calls.push(block.id);
+	}
+	const made = added.filter(
+		(child): child is ToolCard => child instanceof ToolExecutionComponent || child instanceof ReplyWriteComponent,
+	);
+	if (made.length !== calls.length) return cards;
+	for (const [index, id] of calls.entries()) cards.set(id, made[index]!);
+	return cards;
+}
 
 /** The slice of `ChatTranscriptBuilder` the view relies on. */
 export interface Builder {
