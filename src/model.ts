@@ -7,6 +7,7 @@ import {
 	isTranscriptEntry,
 	promptText,
 	recentStart,
+	type StreamingMessage,
 	streamingEntry,
 	type ToolCard,
 	toolCardsOf,
@@ -35,11 +36,6 @@ export interface ModelDeps {
 	getBranch: () => readonly { type: string; id: string }[];
 	/** Tool calls running in this session, keyed by call id; owned by the extension. */
 	liveTools: ReadonlyMap<string, LiveTool>;
-}
-
-interface StreamingMessage {
-	role: string;
-	timestamp: number;
 }
 
 /**

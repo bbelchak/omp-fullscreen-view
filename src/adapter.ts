@@ -18,6 +18,7 @@ import {
 	type TranscriptEntryLike,
 	userTurnDraft,
 } from "@oh-my-pi/pi-tui/chat/transcript-entry";
+import { StatusLineComponent } from "@oh-my-pi/pi-tui/status-line/component";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 
 export type TranscriptEntry = TranscriptEntryLike;
@@ -132,6 +133,85 @@ export function chromeChildren(tui: TUI): Component[] {
 	if (!Array.isArray(children)) return [];
 	const index = children.findIndex(child => child instanceof TranscriptContainer);
 	return index < 0 ? [] : children.slice(index + 1);
+}
+
+/** A reply as streaming events carry it. */
+export interface StreamingMessage {
+	role: string;
+	timestamp: number;
+}
+
+/** The session events the view follows, shaped as both extension and session events carry them. */
+export type SessionEvent =
+	| { type: "message_update"; message: StreamingMessage }
+	| { type: "agent_end" }
+	| { type: "tool_execution_start"; toolCallId: string }
+	| { type: "tool_execution_update"; toolCallId: string; partialResult: unknown }
+	| { type: "tool_execution_end"; toolCallId: string; result: unknown; isError: boolean };
+
+const SESSION_EVENTS: Record<SessionEvent["type"], true> = {
+	message_update: true,
+	agent_end: true,
+	tool_execution_start: true,
+	tool_execution_update: true,
+	tool_execution_end: true,
+};
+
+/** A session omp's TUI shows: the main one, or a subagent's while it is focused. */
+export interface ViewedSession {
+	readonly id: string;
+	getBranch(): readonly { type: string; id: string }[];
+	/** The reply streaming right now, if any. */
+	streaming(): StreamingMessage | undefined;
+	subscribe(listener: (event: SessionEvent) => void): () => void;
+}
+
+/**
+ * The session omp's TUI shows now, `undefined` when it cannot be found. Focusing a subagent
+ * (Agent Hub, a card click) points the transcript, editor and status line at the agent's
+ * session without any extension event. The status line keeps that session as `session`,
+ * and the prompt editor keeps the status line as `composerFacts`.
+ */
+export function viewedSession(tui: TUI): ViewedSession | undefined {
+	const session = field(findStatusLine(chromeChildren(tui)), "session");
+	const manager = field(session, "sessionManager");
+	const getBranch = field(manager, "getBranch");
+	const getSessionId = field(manager, "getSessionId");
+	const subscribe = field(session, "subscribe");
+	if (typeof getBranch !== "function" || typeof getSessionId !== "function" || typeof subscribe !== "function") {
+		return undefined;
+	}
+	const id: unknown = Reflect.apply(getSessionId, manager, []);
+	if (typeof id !== "string") return undefined;
+	return {
+		id,
+		getBranch: () => Reflect.apply(getBranch, manager, []),
+		streaming: () => {
+			const message = field(field(field(session, "agent"), "state"), "streamMessage");
+			return typeof field(message, "role") === "string" && typeof field(message, "timestamp") === "number"
+				? (message as StreamingMessage)
+				: undefined;
+		},
+		subscribe: listener =>
+			Reflect.apply(subscribe, session, [
+				(event: unknown) => {
+					const type = field(event, "type");
+					if (typeof type === "string" && Object.hasOwn(SESSION_EVENTS, type)) listener(event as SessionEvent);
+				},
+			]),
+	};
+}
+
+function findStatusLine(components: readonly unknown[]): StatusLineComponent | undefined {
+	for (const component of components) {
+		if (component instanceof StatusLineComponent) return component;
+		const facts = field(component, "composerFacts");
+		if (facts instanceof StatusLineComponent) return facts;
+		const children = field(component, "children");
+		const found = Array.isArray(children) ? findStatusLine(children) : undefined;
+		if (found) return found;
+	}
+	return undefined;
 }
 
 /** Read a member of an internal object through a runtime guard instead of a trusted shape. */
