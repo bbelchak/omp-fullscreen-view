@@ -145,7 +145,7 @@ export class FullscreenView implements Component {
 			while (index >= 0 && (promptRows[index] === undefined || promptRows[index]! > top)) index--;
 			const target = promptRows[index];
 			if (target !== undefined && target < top) {
-				const label = truncateToWidth(` ↑ ${prompts[index]!.text} `, contentWidth, "…");
+				const label = truncateToWidth(` ↑ ${prompts[index]!.text} `, contentWidth);
 				const labelWidth = visibleWidth(label);
 				const hot = hover !== undefined && hover.row === 0 && hover.col < labelWidth;
 				const styled = hot ? theme.underline(theme.fg("accent", label)) : theme.fg("dim", label);
@@ -191,11 +191,7 @@ export class FullscreenView implements Component {
 			}
 			if (hovered) {
 				const range = hovered.first === hovered.last ? `#${hovered.first + 1}` : `#${hovered.first + 1}–${hovered.last + 1}`;
-				const card = truncateToWidth(
-					` ${range}  ${prompts[hovered.first]!.text} `,
-					Math.min(CARD_MAX_WIDTH, contentWidth),
-					"…",
-				);
+				const card = truncateToWidth(` ${range}  ${prompts[hovered.first]!.text} `, Math.min(CARD_MAX_WIDTH, contentWidth));
 				const cardWidth = visibleWidth(card);
 				lines[hovered.row] = splice(
 					lines[hovered.row]!,

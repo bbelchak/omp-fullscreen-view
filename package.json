@@ -6,5 +6,14 @@
   "type": "module",
   "omp": {
     "extensions": ["./src/index.ts"]
+  },
+  "scripts": {
+    "check": "tsc"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "19.0.0",
+    "@oh-my-pi/pi-tui": "19.0.0",
+    "@types/bun": "1.4.5",
+    "typescript": "7.0.2"
   }
 }
