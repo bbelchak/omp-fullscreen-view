@@ -4,6 +4,8 @@ A fullscreen transcript view for [omp](https://github.com/can1357/oh-my-pi) 19.0
 
 The view replaces the terminal's scrollback with a transcript you scroll inside omp. omp's own editor, status line and dialogs stay at the bottom of the screen and work as usual.
 
+![The fullscreen view scrolled up: the sticky prompt header at the top, the prompt rail and scrollbar on the right, and the jump pill above omp's status line and editor](docs/screenshot.png)
+
 ## Features
 
 - Scroll with the mouse wheel, the scrollbar or the keyboard.
