@@ -214,6 +214,24 @@ function findStatusLine(components: readonly unknown[]): StatusLineComponent | u
 	return undefined;
 }
 
+/**
+ * Whether omp sizes its frames differently from the pty. omp prefers DEC 2048 in-band resize
+ * reports over the pty size and drops a report that disagrees only on the next SIGWINCH. Herdr
+ * sends a report when a terminal shrinks for a peek but none when it returns to its pane, so a
+ * peek report read late leaves every frame short, over stale rows of the last full one, until
+ * the window is resized. Temporary: remove once omp drops such reports itself in Herdr desktop
+ * terminals (fix submitted upstream to can1357/oh-my-pi) and Herdr reports every resize.
+ */
+export function terminalSizeStale(tui: TUI): boolean {
+	const { rows, columns } = process.stdout;
+	return rows > 0 && columns > 0 && (tui.terminal.rows !== rows || tui.terminal.columns !== columns);
+}
+
+/** Replay the pty resize event: omp drops the disagreeing in-band size and repaints at the real one. */
+export function reconcileTerminalSize(): void {
+	process.stdout.emit("resize");
+}
+
 /** Read a member of an internal object through a runtime guard instead of a trusted shape. */
 function field(value: unknown, key: string): unknown {
 	if ((typeof value !== "object" && typeof value !== "function") || value === null || !(key in value)) return undefined;

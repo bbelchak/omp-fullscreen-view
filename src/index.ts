@@ -2,9 +2,11 @@ import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { type Component, matchesKey, type TUI } from "@oh-my-pi/pi-tui";
 import {
 	chromeChildren,
+	reconcileTerminalSize,
 	type SessionEvent,
 	type StreamingMessage,
 	selfCheck,
+	terminalSizeStale,
 	type ToolResultFrame,
 	type ViewedSession,
 	viewedSession,
@@ -83,7 +85,16 @@ export default function fullscreenView(pi: ExtensionAPI): void {
 						focusTarget: problem ? undefined : (tui.getFocused() ?? undefined),
 						onClose: close,
 					});
+					/** Consecutive ticks omp's frame size disagreed with the pty. */
+					let staleTicks = 0;
 					timer = ctx.setInterval(() => {
+						// A real resize can deliver the in-band report a moment before the pty size,
+						// so act only on a mismatch that outlasts one tick.
+						staleTicks = terminalSizeStale(tui) ? staleTicks + 1 : 0;
+						if (staleTicks >= 2) {
+							staleTicks = 0;
+							reconcileTerminalSize();
+						}
 						if (focusedSession(tui, ctx)?.id !== focused?.id) {
 							// omp focused a subagent or returned to the main session: show that transcript.
 							remount(ctx);
