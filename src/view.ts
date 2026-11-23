@@ -5,6 +5,7 @@ import {
 	parseSgrMouse,
 	type SgrMouseEvent,
 	sliceByColumn,
+	TERMINAL,
 	type TUI,
 	truncateToWidth,
 	visibleWidth,
@@ -133,7 +134,17 @@ export class FullscreenView implements Component {
 		const layout: Layout = { width, rows, contentWidth, railOn, total, committed: body.committed, rail: [] };
 		const hover = this.#hover;
 		const lines: string[] = [];
-		for (let row = 0; row < rows; row++) lines.push(truncateToWidth(body.all[top + row] ?? "", contentWidth, "", true));
+		// An image row must reach omp's writer exactly as rendered: it tracks (and later deletes)
+		// a Kitty placement only when the row is the bare placement sequence. Padding, the rail
+		// or the scrollbar appended to it leave an untracked image behind on every scroll.
+		const images: boolean[] = [];
+		for (let row = 0; row < rows; row++) {
+			const line = body.all[top + row] ?? "";
+			images.push(TERMINAL.isImageLine(line));
+			lines.push(images[row] ? line : truncateToWidth(line, contentWidth, "", true));
+		}
+		/** A row the header, pill or rail card may draw over; an image row gives up its image. */
+		const textRow = (row: number) => (images[row] ? " ".repeat(contentWidth) : lines[row]!);
 
 		// Prompt rows; prompts whose history is not loaded yet sit above everything loaded.
 		const prompts = model.prompts;
@@ -150,6 +161,7 @@ export class FullscreenView implements Component {
 				const hot = hover !== undefined && hover.row === 0 && hover.col < labelWidth;
 				const styled = hot ? theme.underline(theme.fg("accent", label)) : theme.fg("dim", label);
 				lines[0] = `${styled}${RESET}${" ".repeat(Math.max(0, contentWidth - labelWidth))}`;
+				images[0] = false;
 				layout.header = { width: labelWidth, target };
 			}
 		}
@@ -167,7 +179,8 @@ export class FullscreenView implements Component {
 			const styled = hot
 				? theme.inverse(theme.bold(theme.fg("accent", text)))
 				: theme.bg("selectedBg", theme.fg("accent", text));
-			lines[row] = splice(lines[row]!, col, styled, labelWidth, contentWidth);
+			lines[row] = splice(textRow(row), col, styled, labelWidth, contentWidth);
+			images[row] = false;
 			layout.pill = { col, width: labelWidth };
 		}
 
@@ -194,12 +207,13 @@ export class FullscreenView implements Component {
 				const card = truncateToWidth(` ${range}  ${prompts[hovered.first]!.text} `, Math.min(CARD_MAX_WIDTH, contentWidth));
 				const cardWidth = visibleWidth(card);
 				lines[hovered.row] = splice(
-					lines[hovered.row]!,
+					textRow(hovered.row),
 					contentWidth - cardWidth,
 					theme.bg("selectedBg", theme.fg("text", card)),
 					cardWidth,
 					contentWidth,
 				);
+				images[hovered.row] = false;
 			}
 		}
 
@@ -220,7 +234,9 @@ export class FullscreenView implements Component {
 					? theme.fg("accent", "┃")
 					: theme.fg("dim", "│")
 				: " ";
-			output.push(`${lines[row]}${RESET}${railOn ? ` ${railGlyphs[row]}` : ""}${bar}${RESET}`);
+			output.push(
+				images[row] ? lines[row]! : `${lines[row]}${RESET}${railOn ? ` ${railGlyphs[row]}` : ""}${bar}${RESET}`,
+			);
 		}
 		output.push(...chrome);
 		this.#layout = layout;
